@@ -96,6 +96,27 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
         "汇总行": {},
     }
 
+    # 检测数据单位（万元或元）
+    # 通过检查标题行来确定单位
+    is_in_wan_yuan = True  # 默认按万元处理
+    for header_row_idx in [4, 5, 6]:
+        header_row = list(ws.iter_rows(min_row=header_row_idx, max_row=header_row_idx, values_only=True))[0]
+        for cell in header_row:
+            if cell and isinstance(cell, str):
+                if "万元" in cell:
+                    is_in_wan_yuan = True
+                    break
+                elif "万元" not in cell and ("元" in cell or "总价" in str(cell)):
+                    # 如果标题包含"元"但不包含"万元"，则是元单位
+                    if "（元）" in cell or "(元)" in cell or "_x000d_\n(元)" in cell:
+                        is_in_wan_yuan = False
+                        break
+        if not is_in_wan_yuan:
+            break
+    
+    # 单位转换因子：如果数据是元，则转换为万元
+    unit_factor = 1.0 if is_in_wan_yuan else 0.0001
+
     # 尝试从第3行获取项目信息（新格式）
     row3 = list(ws.iter_rows(min_row=3, max_row=3, values_only=True))[0]
     project_name = ""
@@ -113,10 +134,23 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
         # 查找建筑面积信息
         for i, val in enumerate(row3):
             if val:
-                if isinstance(val, (int, float)) and val > 0:
-                    # 检查前一个单元格是否是标签
-                    if i > 0 and row3[i-1]:
-                        label = str(row3[i-1])
+                # 处理标签在当前单元格的情况
+                if isinstance(val, str) and "建筑面积" in val:
+                    if i + 1 < len(row3) and row3[i + 1]:
+                        total_area = row3[i + 1]
+                elif isinstance(val, str) and ("可租售面积" in val or "可售面积" in val):
+                    if i + 1 < len(row3) and row3[i + 1]:
+                        saleable_area = row3[i + 1]
+                # 处理值在当前单元格的情况，检查前后单元格是否有标签
+                elif isinstance(val, (int, float)) and val > 0:
+                    if i > 0 and row3[i - 1]:
+                        label = str(row3[i - 1])
+                        if "建筑面积" in label:
+                            total_area = val
+                        elif "可租售面积" in label or "可售面积" in label:
+                            saleable_area = val
+                    if i + 1 < len(row3) and isinstance(row3[i + 1], str):
+                        label = str(row3[i + 1])
                         if "建筑面积" in label:
                             total_area = val
                         elif "可租售面积" in label or "可售面积" in label:
@@ -214,7 +248,7 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
                                 "基础设施工程", "卖场包装费用", "其它"]:
             current_subject = a_val
             result["科目汇总"][current_subject] = {
-                "总价": row[2] if len(row) > 2 and row[2] else 0,
+                "总价": safe_float(row[2]) * unit_factor if len(row) > 2 and row[2] else 0,
                 "相对建面": row[3] if len(row) > 3 and row[3] else 0,
                 "相对建面单方": row[4] if len(row) > 4 and row[4] else 0,
                 "相对建造面积": row[5] if len(row) > 5 and row[5] else 0,
@@ -227,7 +261,7 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
         elif a_val and a_val in ["合计", "总建安成本"]:
             key = "合计-毛坯" if a_val == "合计" else "总建安成本"
             result["汇总行"][key] = {
-                "总价": row[2] if len(row) > 2 and row[2] else 0,
+                "总价": safe_float(row[2]) * unit_factor if len(row) > 2 and row[2] else 0,
                 "相对建面": row[3] if len(row) > 3 and row[3] else 0,
                 "相对建面单方": row[4] if len(row) > 4 and row[4] else 0,
                 "相对建造面积": row[5] if len(row) > 5 and row[5] else 0,
@@ -239,7 +273,7 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
         # 业态子行（在单体工程或户内装饰工程下）
         elif b_val and not b_val.startswith("$") and current_subject in ["单体工程", "户内装饰工程"]:
             # 判断是否为有效业态（总价>0 或 有面积数据）
-            total_price = row[2] if len(row) > 2 and row[2] else 0
+            total_price = safe_float(row[2]) * unit_factor if len(row) > 2 and row[2] else 0
             area = row[3] if len(row) > 3 and row[3] else 0
             
             # 只保留有效业态（排除模板变量和零值业态）
@@ -313,7 +347,7 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
             # 这些是"其它"科目下的子项，需要单独记录到科目汇总
             subject_name = b_val
             result["科目汇总"][subject_name] = {
-                "总价": row[2] if len(row) > 2 and row[2] else 0,
+                "总价": safe_float(row[2]) * unit_factor if len(row) > 2 and row[2] else 0,
                 "相对建面": row[3] if len(row) > 3 and row[3] else 0,
                 "相对建面单方": row[4] if len(row) > 4 and row[4] else 0,
                 "相对建造面积": row[5] if len(row) > 5 and row[5] else 0,
