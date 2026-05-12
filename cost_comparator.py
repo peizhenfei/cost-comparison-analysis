@@ -263,6 +263,14 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
     ]
 
     for type_a, type_b in type_matches:
+        # 如果双方都没有有效的业态类型，跳过
+        if not type_a and not type_b:
+            continue
+        
+        # 如果项目A或项目B没有有效的业态类型（空值或None），跳过对比
+        if not type_a or not type_b:
+            continue
+        
         a_keys = list(project_a["测算明细"]["业态明细"].keys())
         b_keys = list(project_b["测算明细"]["业态明细"].keys())
 
@@ -272,11 +280,20 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
         a_detail = project_a["测算明细"]["业态明细"].get(matched_key_a, {}) if matched_key_a else {}
         b_detail = project_b["测算明细"]["业态明细"].get(matched_key_b, {}) if matched_key_b else {}
 
+        # 如果双方都没有有效数据，跳过（与汇总表保持一致）
+        if not a_detail and not b_detail:
+            continue
+
         type_analysis = {
             "业态A": type_a or "",
             "业态B": type_b or "",
             "科目明细": [],
         }
+        
+        # 预检查：如果项目A没有该业态（type_a为空），检查项目B是否有任何有效数据
+        # 如果没有，跳过该对比（与汇总表逻辑一致）
+        if not type_a and not b_detail:
+            continue
         
         for subject_code in fixed_subjects:
             a_data = a_detail.get(subject_code, {})
@@ -441,6 +458,14 @@ def compare_elastic_costs(project_a: Dict, project_b: Dict, type_matches: List[T
     }
     
     for type_a, type_b in type_matches:
+        # 如果双方都没有有效的业态类型，跳过
+        if not type_a and not type_b:
+            continue
+        
+        # 如果项目A或项目B没有有效的业态类型（空值或None），跳过对比
+        if not type_a or not type_b:
+            continue
+        
         a_keys = list(project_a["测算明细"]["业态明细"].keys())
         b_keys = list(project_b["测算明细"]["业态明细"].keys())
 
@@ -450,10 +475,19 @@ def compare_elastic_costs(project_a: Dict, project_b: Dict, type_matches: List[T
         a_detail = project_a["测算明细"]["业态明细"].get(matched_key_a, {}) if matched_key_a else {}
         b_detail = project_b["测算明细"]["业态明细"].get(matched_key_b, {}) if matched_key_b else {}
 
+        # 如果双方都没有有效数据，跳过（与汇总表保持一致）
+        if not a_detail and not b_detail:
+            continue
+
         a_type_data = project_a["成本控制"]["业态数据"].get(type_a, {}).get("单体工程", {}) if type_a else {}
         b_type_data = project_b["成本控制"]["业态数据"].get(type_b, {}).get("单体工程", {}) if type_b else {}
         a_relative_area = a_type_data.get("相对建面", 0) or project_a["成本控制"]["项目信息"].get("总建筑面积", 1) if type_a else project_a["成本控制"]["项目信息"].get("总建筑面积", 1)
         b_relative_area = b_type_data.get("相对建面", 0) or project_b["成本控制"]["项目信息"].get("总建筑面积", 1) if type_b else project_b["成本控制"]["项目信息"].get("总建筑面积", 1)
+
+        # 预检查：如果项目A没有该业态（type_a为空），检查项目B是否有任何有效数据
+        # 如果没有，跳过该对比（与汇总表逻辑一致）
+        if not type_a and not b_detail:
+            continue
 
         type_analysis = {
             "业态A": type_a or "",

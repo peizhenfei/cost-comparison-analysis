@@ -19,10 +19,14 @@ def main():
     args = parser.parse_args()
 
     if args.list:
-        print("示例文件:")
-        for f in os.listdir("."):
-            if f.endswith(".xlsx") and not f.startswith("~"):
-                print(f"  - {f}")
+        print("data文件夹中的Excel文件:")
+        data_dir = "data"
+        if os.path.exists(data_dir):
+            for f in os.listdir(data_dir):
+                if f.endswith(".xlsx") and not f.startswith("~"):
+                    print(f"  - {f}")
+        else:
+            print("  data文件夹不存在")
         return
 
     # 如果没有提供文件，显示帮助
@@ -32,7 +36,10 @@ def main():
         print("=" * 60)
         print("\n用法:")
         print("  python main.py <项目A文件> <项目B文件> [-o 输出文件]")
-        print("  python main.py --list  # 列出当前目录下的Excel文件")
+        print("  python main.py --list  # 列出data文件夹中的Excel文件")
+        print("\n文件结构:")
+        print("  data/      - 存放输入的项目Excel文件")
+        print("  output/    - 存放生成的对比报告")
         print("\n示例:")
         print('  python main.py "项目A.xlsx" "项目B.xlsx" -o "对比报告.xlsx"')
         print("\n当前目录下的Excel文件:")
@@ -44,6 +51,21 @@ def main():
     project_a_file = args.project_a
     project_b_file = args.project_b
     output_file = args.output
+
+    # 如果输入文件不是完整路径，尝试从 data 文件夹查找
+    if not os.path.isabs(project_a_file) and not os.path.exists(project_a_file):
+        data_path = os.path.join("data", project_a_file)
+        if os.path.exists(data_path):
+            project_a_file = data_path
+    
+    if not os.path.isabs(project_b_file) and not os.path.exists(project_b_file):
+        data_path = os.path.join("data", project_b_file)
+        if os.path.exists(data_path):
+            project_b_file = data_path
+
+    # 如果输出文件不是完整路径，保存到 output 文件夹
+    if not os.path.isabs(output_file):
+        output_file = os.path.join("output", output_file)
 
     if not os.path.exists(project_a_file):
         print(f"错误: 项目A文件不存在: {project_a_file}")

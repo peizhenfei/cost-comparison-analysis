@@ -15,31 +15,56 @@ TYPE_PRIORITY = [
 RESIDENTIAL_TYPES = ["联排", "叠墅", "叠拼", "普通多层", "洋房", "小高层", "高层"]
 
 
+def clean_type_name(type_name: str) -> str:
+    """清理业态名称，去掉括号及其内容
+    
+    例如："普通多层（5F叠墅）" -> "普通多层"
+    """
+    if not type_name:
+        return type_name
+    
+    # 找到第一个左括号的位置
+    idx = type_name.find("（")
+    if idx == -1:
+        idx = type_name.find("(")
+    
+    if idx != -1:
+        return type_name[:idx].strip()
+    
+    return type_name.strip()
+
+
 def classify_type(type_name: str) -> str:
     """将业态名称分类到对应的大类"""
+    # 先清理括号内容
+    clean_name = clean_type_name(type_name)
+    
     # 特殊处理：包含"叠墅"或"叠加"的业态优先归类为叠墅（叠加别墅）
+    # 检查原始名称（包含括号内容），因为"普通多层（5F叠墅）"本质是叠墅类
     if "叠墅" in type_name or "叠加" in type_name:
         return "住宅低层"
     
     for category, types in CATEGORY_MAP.items():
         for t in types:
-            if t in type_name or type_name in t:
+            if t in clean_name or clean_name in t:
                 return category
     return "其他"
 
 
 def get_type_priority(type_name: str) -> int:
     """获取业态的优先级（数字越小优先级越高）"""
+    clean_name = clean_type_name(type_name)
     for i, priority_type in enumerate(TYPE_PRIORITY):
-        if priority_type in type_name or type_name in priority_type:
+        if priority_type in clean_name or clean_name in priority_type:
             return i
     return len(TYPE_PRIORITY)
 
 
 def get_residential_index(type_name: str) -> int:
     """获取业态在住宅业态序列中的位置（用于计算距离）"""
+    clean_name = clean_type_name(type_name)
     for i, t in enumerate(RESIDENTIAL_TYPES):
-        if t in type_name or type_name in t:
+        if t in clean_name or clean_name in t:
             return i
     return -1
 
@@ -56,6 +81,56 @@ def get_type_distance(type_a: str, type_b: str) -> int:
     return abs(idx_a - idx_b)
 
 
+def merge_similar_types(types: List[str]) -> List[str]:
+    """合并项目内部相似的业态类型
+    
+    规则：
+    1. 原始名称包含"叠墅"或"叠加"的业态合并为一个（保留第一个遇到的名称）
+       - 检查原始名称，包含括号内容，所以"普通多层（5F叠墅）"会被识别为叠墅类
+       - "叠墅"、"叠加别墅"、"普通多层（5F叠墅）"会被合并
+    2. 清理括号后名称相同的非叠墅类业态合并为一个（如"普通多层"和"普通多层（洋房）"）
+    3. 叠墅类业态不会和非叠墅类业态合并
+    4. 其他业态保持不变
+    """
+    merged = []
+    seen_stacked = False
+    first_stacked = None
+    seen_types = set()  # 记录已处理的清理后名称（仅用于非叠墅类）
+    stacked_types_seen = set()  # 记录已处理的叠墅类原始名称
+    
+    # 找到第一个叠墅类业态（检查原始名称，包含括号内容）
+    for t in types:
+        if "叠墅" in t or "叠加" in t:
+            first_stacked = t
+            break
+    
+    for t in types:
+        # 检查是否是叠墅类业态（检查原始名称，包含括号内容）
+        is_stacked = "叠墅" in t or "叠加" in t
+        
+        if is_stacked:
+            if t not in stacked_types_seen:
+                if not seen_stacked:
+                    # 保留第一个叠墅类业态的原始名称
+                    merged.append(t)
+                    seen_stacked = True
+                stacked_types_seen.add(t)
+            # 跳过其他叠墅类业态（已合并）
+            continue
+        
+        # 清理括号内容（只用于非叠墅类业态的合并）
+        clean_name = clean_type_name(t)
+        
+        # 检查清理后名称是否已处理过
+        if clean_name in seen_types:
+            continue
+        
+        merged.append(t)
+        seen_types.add(clean_name)
+    
+    return merged
+
+
 def match_types(types_a: List[str], types_b: List[str]) -> List[Tuple[str, str]]:
     """匹配两个项目的业态
     
@@ -68,9 +143,14 @@ def match_types(types_a: List[str], types_b: List[str]) -> List[Tuple[str, str]]
     6. 同类业态内部匹配（住宅低层优先和住宅低层匹配，住宅中高层优先和住宅中高层匹配）
     7. 地下室只能和地下室匹配
     8. 如果一个项目只有一个住宅业态，另一个项目也只有一个住宅业态（不同分类），跨分类匹配
+    9. 业态名称中的括号内容（如"普通多层（5F叠墅）"）视为说明，不影响匹配
     
     返回: [(项目A业态, 项目B业态), ...]
     """
+    
+    # 先合并项目内部的相似业态（如叠墅和叠加别墅合并为一个）
+    types_a = merge_similar_types(types_a)
+    types_b = merge_similar_types(types_b)
     
     # 特殊规则1：如果双方都只有一个业态，直接匹配（即使跨分类）
     if len(types_a) == 1 and len(types_b) == 1:
@@ -127,10 +207,23 @@ def match_types(types_a: List[str], types_b: List[str]) -> List[Tuple[str, str]]
             for b_type in b_list[:]:
                 if b_type in matched_b or a_type in matched_a:
                     continue
+                
+                # 使用清理后的名称进行比较（去掉括号内容）
+                a_clean = clean_type_name(a_type)
+                b_clean = clean_type_name(b_type)
+                
+                # 检查原始名称中是否包含叠墅/叠加（用于识别"普通多层（5F叠墅）"这种情况）
+                a_has_stacked = "叠墅" in a_type or "叠加" in a_type
+                b_has_stacked = "叠墅" in b_type or "叠加" in b_type
+                
                 # 精确匹配或叠墅叠拼互认
-                if a_type == b_type or \
-                   ("叠墅" in a_type and "叠拼" in b_type) or \
-                   ("叠拼" in a_type and "叠墅" in b_type):
+                # 如果任一业态原始名称包含叠墅/叠加，则视为可匹配的叠墅类业态
+                if a_clean == b_clean or \
+                   ("叠墅" in a_clean and "叠拼" in b_clean) or \
+                   ("叠拼" in a_clean and "叠墅" in b_clean) or \
+                   ("叠墅" in a_clean and "叠加" in b_clean) or \
+                   ("叠加" in a_clean and "叠墅" in b_clean) or \
+                   (a_has_stacked and b_has_stacked):
                     matches.append((a_type, b_type))
                     matched_b.add(b_type)
                     matched_a.add(a_type)
@@ -212,10 +305,14 @@ def get_matched_types(project_a_data: Dict, project_b_data: Dict) -> List[Tuple[
     types_a = get_project_types(project_a_data)
     types_b = get_project_types(project_b_data)
     
-    print(f"项目A业态: {types_a}")
-    print(f"项目B业态: {types_b}")
+    # 合并项目内部相似业态
+    types_a_merged = merge_similar_types(types_a)
+    types_b_merged = merge_similar_types(types_b)
     
-    matches = match_types(types_a, types_b)
+    print(f"项目A业态: {types_a_merged}")
+    print(f"项目B业态: {types_b_merged}")
+    
+    matches = match_types(types_a_merged, types_b_merged)
     
     print(f"\n业态匹配结果:")
     for a, b in matches:

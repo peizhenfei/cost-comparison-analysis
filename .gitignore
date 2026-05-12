@@ -4,12 +4,14 @@ __pycache__/
 *.pyo
 *.pyd
 
+# 数据和输出文件夹
+data/
+output/
+
 # 测试文件
 test*.py
 debug*.py
 fix*.py
-*.xlsx
-!requirements.txt
 
 # 环境配置
 .env
