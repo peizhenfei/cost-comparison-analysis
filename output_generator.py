@@ -93,13 +93,13 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
     """生成成本对比总表"""
     ws = wb.create_sheet("成本对比总表")
 
-    # 设置列宽
-    col_widths = [18, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14]
+    # 设置列宽（增加一列总金额差）
+    col_widths = [18, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14]
     for i, width in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = width
 
     # ===== Row 1: 表格标题 =====
-    ws.merge_cells("A1:M1")
+    ws.merge_cells("A1:N1")
     set_cell_value(ws["A1"], "建安成本对比分析表",
                    font=Font(name="微软雅黑", size=16, bold=True, color="000000"),
                    fill=PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid"),
@@ -133,14 +133,15 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
         ws.cell(row=2, column=col).fill = styles["project_b_fill"]
         ws.cell(row=2, column=col).border = styles["thin_border"]
 
-    ws.merge_cells("L2:M2")
+    ws.merge_cells("L2:N2")
     set_cell_value(ws["L2"], "差额",
                    font=styles["bold_font"],
                    fill=styles["diff_fill"],
                    alignment=styles["center_align"],
                    border=styles["thin_border"])
-    ws["M2"].fill = styles["diff_fill"]
-    ws["M2"].border = styles["thin_border"]
+    for col in range(13, 15):
+        ws.cell(row=2, column=col).fill = styles["diff_fill"]
+        ws.cell(row=2, column=col).border = styles["thin_border"]
 
     ws.row_dimensions[2].height = 28
 
@@ -171,14 +172,15 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
         ws.cell(row=3, column=col).fill = styles["project_b_sub_fill"]
         ws.cell(row=3, column=col).border = styles["thin_border"]
 
-    ws.merge_cells("L3:M3")
-    set_cell_value(ws["L3"], "单方差额",
+    ws.merge_cells("L3:N3")
+    set_cell_value(ws["L3"], "差额",
                    font=styles["dark_title_font"],
                    fill=styles["diff_sub_fill"],
                    alignment=styles["center_align"],
                    border=styles["thin_border"])
-    ws["M3"].fill = styles["diff_sub_fill"]
-    ws["M3"].border = styles["thin_border"]
+    for col in range(13, 15):
+        ws.cell(row=3, column=col).fill = styles["diff_sub_fill"]
+        ws.cell(row=3, column=col).border = styles["thin_border"]
 
     ws.row_dimensions[3].height = 25
 
@@ -248,6 +250,12 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
                    alignment=styles["center_align"],
                    border=styles["thin_border"])
 
+    set_cell_value(ws["N4"], "总金额差",
+                   font=styles["dark_title_font"],
+                   fill=styles["diff_sub_fill"],
+                   alignment=styles["center_align"],
+                   border=styles["thin_border"])
+
     ws.row_dimensions[4].height = 22
 
     # ===== Row 5: 三级表头（面积/单价） =====
@@ -260,6 +268,7 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
         ("H5", "相对建面(㎡)"), ("I5", "相对建面单价"),
         ("J5", "总建面(㎡)"), ("K5", "总建面单价"),
         ("L5", "差额(元/㎡)"), ("M5", "差额(元/㎡)"),
+        ("N5", "总金额差(万元)"),
     ]
 
     for cell_ref, header_text in headers_row5:
@@ -392,6 +401,14 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
         ws.cell(row=row_idx, column=13).border = styles["thin_border"]
         ws.cell(row=row_idx, column=13).number_format = '#,##0.00'
 
+        # N列(14): 总金额差 = B-G (公式，项目A总价 - 项目B总价)
+        ws.cell(row=row_idx, column=14).value = f"=B{row_idx}-G{row_idx}"
+        ws.cell(row=row_idx, column=14).font = styles["normal_font"]
+        ws.cell(row=row_idx, column=14).fill = fill
+        ws.cell(row=row_idx, column=14).alignment = styles["center_align"]
+        ws.cell(row=row_idx, column=14).border = styles["thin_border"]
+        ws.cell(row=row_idx, column=14).number_format = '#,##0.00'
+
         ws.row_dimensions[row_idx].height = 20
         row_idx += 1
 
@@ -487,6 +504,14 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
                 ws.cell(row=row_idx, column=13).border = styles["thin_border"]
                 ws.cell(row=row_idx, column=13).number_format = '#,##0.00'
 
+                # N列(14): 总金额差 = B-G (公式)
+                ws.cell(row=row_idx, column=14).value = f"=B{row_idx}-G{row_idx}"
+                ws.cell(row=row_idx, column=14).font = styles["normal_font"]
+                ws.cell(row=row_idx, column=14).fill = styles["even_fill"]
+                ws.cell(row=row_idx, column=14).alignment = styles["center_align"]
+                ws.cell(row=row_idx, column=14).border = styles["thin_border"]
+                ws.cell(row=row_idx, column=14).number_format = '#,##0.00'
+
                 ws.row_dimensions[row_idx].height = 20
                 row_idx += 1
 
@@ -580,6 +605,14 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
                 ws.cell(row=row_idx, column=13).alignment = styles["center_align"]
                 ws.cell(row=row_idx, column=13).border = styles["thin_border"]
                 ws.cell(row=row_idx, column=13).number_format = '#,##0.00'
+
+                # N列(14): 总金额差 = B-G (公式)
+                ws.cell(row=row_idx, column=14).value = f"=B{row_idx}-G{row_idx}"
+                ws.cell(row=row_idx, column=14).font = styles["normal_font"]
+                ws.cell(row=row_idx, column=14).fill = styles["even_fill"]
+                ws.cell(row=row_idx, column=14).alignment = styles["center_align"]
+                ws.cell(row=row_idx, column=14).border = styles["thin_border"]
+                ws.cell(row=row_idx, column=14).number_format = '#,##0.00'
 
                 ws.row_dimensions[row_idx].height = 20
                 row_idx += 1
