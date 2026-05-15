@@ -651,32 +651,34 @@ def compare_elastic_costs(project_a: Dict, project_b: Dict, type_matches: List[T
                 a_content_ratio = a_content
                 b_content_ratio = b_content
             
-            # 根据SKILL文档中的公式计算单方
-            if subject_code == "03.04.09":  # 入户门工程
-                # 单方 = 户密度 × 配置单价 / 10000
-                a_unit_price = a_danfang if a_danfang > 0 else (a_content_ratio * a_price / 10000 if a_content_ratio > 0 and a_price > 0 else 0)
-                b_unit_price = b_danfang if b_danfang > 0 else (b_content_ratio * b_price / 10000 if b_content_ratio > 0 and b_price > 0 else 0)
-            elif subject_code == "03.04.10":  # 外立面门窗工程
-                # 单方 = 窗积比 × 门窗综合单价
-                a_unit_price = a_danfang if a_danfang > 0 else (a_content_ratio * a_price if a_content_ratio > 0 and a_price > 0 else 0)
-                b_unit_price = b_danfang if b_danfang > 0 else (b_content_ratio * b_price if b_content_ratio > 0 and b_price > 0 else 0)
-            elif subject_code == "03.04.20":  # 安防系统
-                # 单方 = 户密度 × 安防单价 / 10000
-                a_unit_price = a_danfang if a_danfang > 0 else (a_content_ratio * a_price / 10000 if a_content_ratio > 0 and a_price > 0 else 0)
-                b_unit_price = b_danfang if b_danfang > 0 else (b_content_ratio * b_price / 10000 if b_content_ratio > 0 and b_price > 0 else 0)
-            elif subject_code == "03.04.23":  # 电梯工程
-                # 单方 = 梯密度 × 每部电梯单价 / 10000
-                a_unit_price = a_danfang if a_danfang > 0 else (a_content_ratio * a_price / 10000 if a_content_ratio > 0 and a_price > 0 else 0)
-                b_unit_price = b_danfang if b_danfang > 0 else (b_content_ratio * b_price / 10000 if b_content_ratio > 0 and b_price > 0 else 0)
-            else:
-                a_unit_price = a_danfang if a_danfang > 0 else (a_content_ratio * a_price if a_content_ratio > 0 and a_price > 0 else 0)
-                b_unit_price = b_danfang if b_danfang > 0 else (b_content_ratio * b_price if b_content_ratio > 0 and b_price > 0 else 0)
+            # 计算单方：当含量指标和配置单价都可用时，始终用公式重新计算
+            # 公式: 单方 = 含量指标 × 配置单价 / 10000 (入户门/安防/电梯)
+            # 公式: 单方 = 含量指标 × 配置单价      (外立面门窗)
+            # 这样做确保: 含量影响 + 单价影响 = 单方差异（等式恒成立）
+            is_density_subject = subject_code in ["03.04.09", "03.04.20", "03.04.23"]
+            divisor = 10000 if is_density_subject else 1
             
-            # 如果单方为空但含量指标有值，尝试反推配置单价
+            # 项目A单方
+            if a_content_ratio > 0 and a_price > 0:
+                a_unit_price = a_content_ratio * a_price / divisor
+            elif a_danfang > 0:
+                a_unit_price = a_danfang
+            else:
+                a_unit_price = 0
+            
+            # 项目B单方
+            if b_content_ratio > 0 and b_price > 0:
+                b_unit_price = b_content_ratio * b_price / divisor
+            elif b_danfang > 0:
+                b_unit_price = b_danfang
+            else:
+                b_unit_price = 0
+            
+            # 反推缺失的配置单价：当单方和含量都有，但单价缺失时
             if a_unit_price > 0 and a_content_ratio > 0 and a_price == 0:
-                a_price = a_unit_price / a_content_ratio * 10000 if subject_code in ["03.04.09", "03.04.20", "03.04.23"] else a_unit_price / a_content_ratio
+                a_price = a_unit_price * divisor / a_content_ratio
             if b_unit_price > 0 and b_content_ratio > 0 and b_price == 0:
-                b_price = b_unit_price / b_content_ratio * 10000 if subject_code in ["03.04.09", "03.04.20", "03.04.23"] else b_unit_price / b_content_ratio
+                b_price = b_unit_price * divisor / b_content_ratio
             
             # 计算影响（使用平均法）
             avg_content = (a_content_ratio + b_content_ratio) / 2 if (a_content_ratio + b_content_ratio) > 0 else 0
@@ -700,9 +702,9 @@ def compare_elastic_costs(project_a: Dict, project_b: Dict, type_matches: List[T
             if abs(price_impact) > 0.01:
                 diff_parts.append(f"配置影响: {price_impact:.2f}元/㎡")
 
-            # 如果没有含量和单价差异（对于03.04.12, 03.04.13, 03.04.14等科目），则显示单方差异
+            # 如果含量和配置影响都为0但单方有差异，说明缺少明细数据无法分解
             if not diff_parts and abs(a_unit_price - b_unit_price) > 0.01:
-                diff_parts.append(f"单方差异: {a_unit_price - b_unit_price:.2f}元/㎡")
+                diff_parts.append(f"无法分解（缺少含量/单价明细），单方差: {a_unit_price - b_unit_price:.2f}元/㎡")
 
             diff_desc = "；".join(diff_parts) if diff_parts else ""
 

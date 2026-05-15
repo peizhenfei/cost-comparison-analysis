@@ -185,26 +185,42 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
     result["项目信息"]["可售面积"] = saleable_area
     
     current_subject = None
+    PRIMARY_SUBJECTS_04 = [
+        "前期工程", "桩基础工程", "岩土工程", "单体工程",
+        "配套工程", "室外工程", "户内装饰工程",
+        "基础设施工程", "卖场包装费用", "其它",
+    ]
     for row in ws.iter_rows(min_row=7, max_row=ws.max_row, values_only=True):
-        a_val = row[0] if row[0] else None
-        b_val = row[1] if row[1] else None
+        a_val = str(row[0]).strip() if row[0] else None
+        b_val = str(row[1]).strip() if row[1] else None
         
         if not a_val and not b_val:
             continue
         
-        if a_val and a_val in ["前期工程", "桩基础工程", "岩土工程", "单体工程", 
-                                "配套工程", "室外工程", "户内装饰工程", 
-                                "基础设施工程", "卖场包装费用", "其它"]:
+        if a_val and a_val in PRIMARY_SUBJECTS_04:
             current_subject = a_val
-            result["科目汇总"][current_subject] = {
-                "总价": safe_float(row[2]) * unit_factor if len(row) > 2 and row[2] else 0,
-                "相对建面": row[3] if len(row) > 3 and row[3] else 0,
-                "相对建面单方": row[4] if len(row) > 4 and row[4] else 0,
-                "相对建造面积": row[5] if len(row) > 5 and row[5] else 0,
-                "相对建造单方": row[6] if len(row) > 6 and row[6] else 0,
-                "可售面积": row[7] if len(row) > 7 and row[7] else 0,
-                "可售单方": row[8] if len(row) > 8 and row[8] else 0,
-            }
+            # 处理"其它"科目：A列为"其它"是分组标题，真正的科目名在B列
+            if current_subject == "其它" and b_val and not b_val.startswith("$") and not b_val.startswith("$pname"):
+                subject_name = b_val
+                result["科目汇总"][subject_name] = {
+                    "总价": safe_float(row[2]) * unit_factor if len(row) > 2 and row[2] else 0,
+                    "相对建面": row[3] if len(row) > 3 and row[3] else 0,
+                    "相对建面单方": row[4] if len(row) > 4 and row[4] else 0,
+                    "相对建造面积": row[5] if len(row) > 5 and row[5] else 0,
+                    "相对建造单方": row[6] if len(row) > 6 and row[6] else 0,
+                    "可售面积": row[7] if len(row) > 7 and row[7] else 0,
+                    "可售单方": row[8] if len(row) > 8 and row[8] else 0,
+                }
+            else:
+                result["科目汇总"][current_subject] = {
+                    "总价": safe_float(row[2]) * unit_factor if len(row) > 2 and row[2] else 0,
+                    "相对建面": row[3] if len(row) > 3 and row[3] else 0,
+                    "相对建面单方": row[4] if len(row) > 4 and row[4] else 0,
+                    "相对建造面积": row[5] if len(row) > 5 and row[5] else 0,
+                    "相对建造单方": row[6] if len(row) > 6 and row[6] else 0,
+                    "可售面积": row[7] if len(row) > 7 and row[7] else 0,
+                    "可售单方": row[8] if len(row) > 8 and row[8] else 0,
+                }
         
         elif a_val and a_val in ["合计", "总建安成本"]:
             key = "合计-毛坯" if a_val == "合计" else "总建安成本"
@@ -218,7 +234,7 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
                 "可售单方": row[8] if len(row) > 8 and row[8] else 0,
             }
         
-        elif b_val and not b_val.startswith("$") and current_subject in ["单体工程", "户内装饰工程"]:
+        elif b_val and not b_val.startswith("$") and not b_val.startswith("$pname") and current_subject in ["单体工程", "户内装饰工程"]:
             total_price = safe_float(row[2]) * unit_factor if len(row) > 2 and row[2] else 0
             area = row[3] if len(row) > 3 and row[3] else 0
             
@@ -229,55 +245,24 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
                 if "(商业)" in type_name:
                     type_name = type_name.replace("(商业)", "")
                 
+                # 对于叠墅/叠加类业态，统一名称以便匹配
                 if "叠墅" in type_name or "叠加" in type_name:
                     type_name = "叠墅"
                 
-                if type_name in result["业态数据"]:
-                    existing_data = result["业态数据"][type_name]
-                    if current_subject not in existing_data:
-                        result["业态数据"][type_name][current_subject] = {
-                            "总价": total_price,
-                            "相对建面": area,
-                            "相对建面单方": row[4] if len(row) > 4 and row[4] else 0,
-                            "相对建造面积": row[5] if len(row) > 5 and row[5] else 0,
-                            "相对建造单方": row[6] if len(row) > 6 and row[6] else 0,
-                            "可售面积": row[7] if len(row) > 7 and row[7] else 0,
-                            "可售单方": row[8] if len(row) > 8 and row[8] else 0,
-                        }
-                else:
-                    matched_type = None
-                    for existing_type, existing_data in result["业态数据"].items():
-                        if existing_type != type_name:
-                            existing_area = 0
-                            for subject_data in existing_data.values():
-                                existing_area = subject_data.get("相对建面", 0)
-                                if existing_area > 0:
-                                    break
-                            if abs(existing_area - area) < 0.01 and current_subject not in existing_data:
-                                matched_type = existing_type
-                                break
-                    
-                    if matched_type:
-                        result["业态数据"][matched_type][current_subject] = {
-                            "总价": total_price,
-                            "相对建面": area,
-                            "相对建面单方": row[4] if len(row) > 4 and row[4] else 0,
-                            "相对建造面积": row[5] if len(row) > 5 and row[5] else 0,
-                            "相对建造单方": row[6] if len(row) > 6 and row[6] else 0,
-                            "可售面积": row[7] if len(row) > 7 and row[7] else 0,
-                            "可售单方": row[8] if len(row) > 8 and row[8] else 0,
-                        }
-                    else:
-                        result["业态数据"][type_name] = {}
-                        result["业态数据"][type_name][current_subject] = {
-                            "总价": total_price,
-                            "相对建面": area,
-                            "相对建面单方": row[4] if len(row) > 4 and row[4] else 0,
-                            "相对建造面积": row[5] if len(row) > 5 and row[5] else 0,
-                            "相对建造单方": row[6] if len(row) > 6 and row[6] else 0,
-                            "可售面积": row[7] if len(row) > 7 and row[7] else 0,
-                            "可售单方": row[8] if len(row) > 8 and row[8] else 0,
-                        }
+                # 直接使用名称作为key，不再做面积相似度合并
+                # 原因：不同业态（如写字楼1/写字楼2/写字楼3）可能共享相同的建筑面积
+                # 使用面积合并会导致多个子业态被错误合并为一个
+                if type_name not in result["业态数据"]:
+                    result["业态数据"][type_name] = {}
+                result["业态数据"][type_name][current_subject] = {
+                    "总价": total_price,
+                    "相对建面": area,
+                    "相对建面单方": row[4] if len(row) > 4 and row[4] else 0,
+                    "相对建造面积": row[5] if len(row) > 5 and row[5] else 0,
+                    "相对建造单方": row[6] if len(row) > 6 and row[6] else 0,
+                    "可售面积": row[7] if len(row) > 7 and row[7] else 0,
+                    "可售单方": row[8] if len(row) > 8 and row[8] else 0,
+                }
         
         elif current_subject == "其它" and b_val and not b_val.startswith("$"):
             subject_name = b_val
@@ -336,15 +321,24 @@ def load_project(file_path: str) -> Dict[str, Any]:
 def get_project_types(project_data: Dict) -> List[str]:
     """从项目数据中获取业态列表"""
     types = []
+
+    def is_template_placeholder(name):
+        if not name:
+            return True
+        if name.startswith("$pname"):
+            return True
+        return False
     
     # 从成本控制数据获取业态
     if "成本控制" in project_data and "业态数据" in project_data["成本控制"]:
-        types.extend(project_data["成本控制"]["业态数据"].keys())
+        for type_name in project_data["成本控制"]["业态数据"].keys():
+            if not is_template_placeholder(type_name):
+                types.append(type_name)
     
     # 从测算明细获取业态（作为补充）
     if "测算明细" in project_data and "业态明细" in project_data["测算明细"]:
         for type_name in project_data["测算明细"]["业态明细"].keys():
-            if type_name not in types:
+            if not is_template_placeholder(type_name) and type_name not in types:
                 types.append(type_name)
     
     return sorted(types)
@@ -394,6 +388,10 @@ def parse_cost_detail(wb: openpyxl.Workbook) -> Dict[str, Any]:
             continue
         
         code_name_str = str(code_name).strip()
+        
+        # 跳过模板占位符（$pname开头的不参与业态匹配）
+        if code_name_str.startswith("$pname"):
+            continue
         
         # 识别业态名称行
         is_type_row = False
