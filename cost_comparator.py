@@ -67,6 +67,49 @@ def find_matching_type_key(type_name: str, detail_keys: List[str], project_data:
         return candidates[0][0] if candidates else None
 
 
+def _aggregate_density_items(valid_items: List[Dict], subject_code: str) -> Dict:
+    """聚合密度型弹性科目的子项数据（入户门/安防/电梯）
+
+    这些科目的子项共享同一个基础工程量（电梯台数、户数），但单价不同，
+    需要聚合所有子项而不是只取第一个。
+    """
+    result = {'content': 0, 'price': 0, 'from_hanliang': False}
+
+    if subject_code == "03.04.09":
+        # 入户门工程：子项B系数不同，需要从 C/B 反推户数
+        # 配置单价 = 总成本 / 户数
+        total_cost = 0
+        household_count = 0
+        for item in valid_items:
+            h = item['hanliang']
+            g = item['gongchengliang']
+            d = item['danjia']
+            if isinstance(h, (int, float)) and h > 0 and isinstance(g, (int, float)) and g > 0:
+                if household_count == 0:
+                    household_count = g / h  # 户数 = 工程量 / 含量系数
+                if isinstance(d, (int, float)) and d > 0:
+                    total_cost += g * d
+        if household_count > 0:
+            result['content'] = household_count
+            result['price'] = total_cost / household_count if household_count > 0 else 0
+    else:
+        # 电梯工程/安防系统：所有子项共享同一个工程量，单价求和
+        content = 0
+        price = 0
+        for item in valid_items:
+            g = item['gongchengliang']
+            d = item['danjia']
+            if isinstance(g, (int, float)) and g > 0:
+                if content == 0:
+                    content = g
+                if isinstance(d, (int, float)) and d > 0:
+                    price += d  # 单价求和（如供货+安装+其他）
+        result['content'] = content
+        result['price'] = price
+
+    return result
+
+
 def compare_summary(project_a: Dict, project_b: Dict, type_matches: List[Tuple[str, str]]) -> Dict[str, Any]:
     """生成成本对比总表数据"""
     
@@ -520,8 +563,13 @@ def compare_elastic_costs(project_a: Dict, project_b: Dict, type_matches: List[T
         if not a_detail and not b_detail:
             continue
 
-        a_type_data = project_a["成本控制"]["业态数据"].get(type_a, {}).get("单体工程", {}) if type_a else {}
-        b_type_data = project_b["成本控制"]["业态数据"].get(type_b, {}).get("单体工程", {}) if type_b else {}
+        # 成本控制业态key可能与type_a名称不一致，使用模糊匹配
+        cc_keys_a = list(project_a["成本控制"]["业态数据"].keys()) if type_a else []
+        cc_key_a = find_matching_type_key(type_a, cc_keys_a) if type_a else None
+        cc_keys_b = list(project_b["成本控制"]["业态数据"].keys()) if type_b else []
+        cc_key_b = find_matching_type_key(type_b, cc_keys_b) if type_b else None
+        a_type_data = project_a["成本控制"]["业态数据"].get(cc_key_a, {}).get("单体工程", {}) if cc_key_a else {}
+        b_type_data = project_b["成本控制"]["业态数据"].get(cc_key_b, {}).get("单体工程", {}) if cc_key_b else {}
         a_relative_area = a_type_data.get("相对建面", 0) or project_a["成本控制"]["项目信息"].get("总建筑面积", 1) if type_a else project_a["成本控制"]["项目信息"].get("总建筑面积", 1)
         b_relative_area = b_type_data.get("相对建面", 0) or project_b["成本控制"]["项目信息"].get("总建筑面积", 1) if type_b else project_b["成本控制"]["项目信息"].get("总建筑面积", 1)
 
@@ -580,24 +628,30 @@ def compare_elastic_costs(project_a: Dict, project_b: Dict, type_matches: List[T
                                 'danjia': sub_danjia
                             })
                 
-                # 从有效数据中选择最优值
-                for item in valid_a_items:
-                    h = item['hanliang']
-                    g = item['gongchengliang']
-                    d = item['danjia']
-                    
-                    # 优先选择有意义的含量值（不是1或0）
-                    if isinstance(h, (int, float)) and h > 0 and h != 1 and h != 0:
-                        a_content = h
-                        a_content_from_hanliang = True  # 标记是从含量字段获取的
-                        if isinstance(d, (int, float)) and d > 0:
-                            a_price = d
-                    # 如果还没有含量值，使用工程量
-                    elif a_content == 0 and isinstance(g, (int, float)) and g > 0:
-                        a_content = g
-                        if isinstance(d, (int, float)) and d > 0 and a_price == 0:
-                            a_price = d
-                
+                # 密度型科目（入户门/安防/电梯）使用聚合逻辑
+                if subject_code in ["03.04.09", "03.04.20", "03.04.23"]:
+                    # 聚合所有子项：电梯/安防的单价求和，入户门反推户数
+                    a_aggregated = _aggregate_density_items(valid_a_items, subject_code)
+                    a_content = a_aggregated['content']
+                    a_price = a_aggregated['price']
+                    a_content_from_hanliang = a_aggregated['from_hanliang']
+                else:
+                    # 非密度型科目：从有效数据中选择最优值（原有逻辑）
+                    for item in valid_a_items:
+                        h = item['hanliang']
+                        g = item['gongchengliang']
+                        d = item['danjia']
+
+                        if isinstance(h, (int, float)) and h > 0 and h != 1 and h != 0:
+                            a_content = h
+                            a_content_from_hanliang = True
+                            if isinstance(d, (int, float)) and d > 0:
+                                a_price = d
+                        elif a_content == 0 and isinstance(g, (int, float)) and g > 0:
+                            a_content = g
+                            if isinstance(d, (int, float)) and d > 0 and a_price == 0:
+                                a_price = d
+
                 # 项目B同样处理
                 valid_b_items = []
                 for key, sub_data in b_detail.items():
@@ -611,22 +665,28 @@ def compare_elastic_costs(project_a: Dict, project_b: Dict, type_matches: List[T
                                 'gongchengliang': sub_gongchengliang,
                                 'danjia': sub_danjia
                             })
-                
-                for item in valid_b_items:
-                    h = item['hanliang']
-                    g = item['gongchengliang']
-                    d = item['danjia']
-                    
-                    if isinstance(h, (int, float)) and h > 0 and h != 1 and h != 0:
-                        b_content = h
-                        b_content_from_hanliang = True
-                        if isinstance(d, (int, float)) and d > 0:
-                            b_price = d
-                    elif b_content == 0 and isinstance(g, (int, float)) and g > 0:
-                        b_content = g
-                        if isinstance(d, (int, float)) and d > 0 and b_price == 0:
-                            b_price = d
-            
+
+                if subject_code in ["03.04.09", "03.04.20", "03.04.23"]:
+                    b_aggregated = _aggregate_density_items(valid_b_items, subject_code)
+                    b_content = b_aggregated['content']
+                    b_price = b_aggregated['price']
+                    b_content_from_hanliang = b_aggregated['from_hanliang']
+                else:
+                    for item in valid_b_items:
+                        h = item['hanliang']
+                        g = item['gongchengliang']
+                        d = item['danjia']
+
+                        if isinstance(h, (int, float)) and h > 0 and h != 1 and h != 0:
+                            b_content = h
+                            b_content_from_hanliang = True
+                            if isinstance(d, (int, float)) and d > 0:
+                                b_price = d
+                        elif b_content == 0 and isinstance(g, (int, float)) and g > 0:
+                            b_content = g
+                            if isinstance(d, (int, float)) and d > 0 and b_price == 0:
+                                b_price = d
+
             # 计算含量指标（根据定义）
             if subject_code in ["03.04.09", "03.04.20"]:
                 # 户密度 = 户数 / 相对建筑面积 × 10000
